@@ -12,13 +12,12 @@ bind = f"0.0.0.0:{PORT}"
 backlog = 2048
 
 # Worker processes
-# For Render free tier (2GB RAM), use fewer workers to avoid memory issues
-# Calculate workers: min(CPU cores * 2 + 1, 4) to cap at 4 for free tier
-cpu_count = multiprocessing.cpu_count()
-workers = min(cpu_count * 2 + 1, 4)  # Cap at 4 workers for free tier
+# For Render free tier (2GB RAM), use minimal workers to avoid memory/timeout issues
+# Start with 1 worker - can increase if needed
+workers = 1  # Single worker for free tier stability
 worker_class = "eventlet"
 worker_connections = 1000
-timeout = 30
+timeout = 120  # Increased timeout for slow initialization (database connections, etc.)
 keepalive = 2
 
 # Logging

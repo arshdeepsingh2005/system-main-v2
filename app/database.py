@@ -49,12 +49,20 @@ if DATABASE_URL.startswith("sqlite"):
     # Required for SQLite when used across multiple threads (SocketIO workers).
     connect_args["check_same_thread"] = False
 
+# Add connection timeout for faster failure if DB is unreachable
+connect_args_with_timeout = connect_args.copy()
+if DATABASE_URL.startswith("postgresql"):
+    # PostgreSQL connection timeout (in seconds)
+    connect_args_with_timeout.setdefault("connect_timeout", 10)
+
 engine = create_engine(
     DATABASE_URL,
     pool_pre_ping=True,
+    pool_recycle=3600,  # Recycle connections after 1 hour
+    pool_timeout=10,    # Timeout when getting connection from pool
     future=True,
     echo=False,
-    connect_args=connect_args,
+    connect_args=connect_args_with_timeout,
 )
 
 SessionLocal = sessionmaker(

@@ -42,15 +42,27 @@ def create_app(config_class=Config):
     app.register_blueprint(sse_bp)
 
     # Initialize persistence + service layer
-    with app.app_context():
+    # Do this in a non-blocking way to avoid worker timeout
+    import threading
+    import logging
+    
+    def init_background():
+        """Initialize database and services in background to avoid blocking worker startup."""
         try:
-            init_db()
-            user_service.start()
+            with app.app_context():
+                logging.info("Initializing database...")
+                init_db()
+                logging.info("Database initialized")
+                logging.info("Starting user service...")
+                user_service.start()
+                logging.info("User service started")
         except Exception as e:
-            import logging
             logging.error(f"Error during database/service initialization: {e}", exc_info=True)
             # Don't crash the app - let it start and handle errors at request time
-            # This allows the health endpoint to work even if DB is temporarily unavailable
+    
+    # Start initialization in background thread
+    init_thread = threading.Thread(target=init_background, daemon=True, name="App-Init")
+    init_thread.start()
     
     # Start background cleanup thread for SSE connections
     _start_sse_cleanup_thread()
