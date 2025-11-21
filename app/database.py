@@ -16,13 +16,32 @@ load_dotenv()
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     import logging
-    logging.error(
-        "DATABASE_URL environment variable is required. "
-        "Set it to your production database connection string."
+    import sys
+    # Configure logging if not already configured
+    if not logging.getLogger().handlers:
+        logging.basicConfig(
+            level=logging.ERROR,
+            format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+            stream=sys.stderr
+        )
+    logger = logging.getLogger(__name__)
+    error_msg = (
+        "=" * 60 + "\n"
+        "FATAL ERROR: DATABASE_URL environment variable is required!\n"
+        "=" * 60 + "\n"
+        "To fix this:\n"
+        "1. Go to Render Dashboard → Your Service → Environment\n"
+        "2. Add environment variable: DATABASE_URL\n"
+        "3. Set value to your PostgreSQL connection string\n"
+        "   Example: postgresql://user:pass@host:5432/dbname?sslmode=require\n"
+        "4. Save and redeploy\n"
+        "=" * 60
     )
+    logger.error(error_msg)
+    print(error_msg, file=sys.stderr)
     raise RuntimeError(
         "DATABASE_URL environment variable is required. "
-        "Set it to your production database connection string."
+        "Set it in Render dashboard → Environment → DATABASE_URL"
     )
 
 connect_args = {}

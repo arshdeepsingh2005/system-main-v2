@@ -2,9 +2,13 @@
 Gunicorn configuration for production deployment.
 """
 import multiprocessing
+import os
 
 # Server socket
-bind = "0.0.0.0:5000"
+# Render uses PORT environment variable (defaults to 10000)
+# Use PORT if set, otherwise default to 5000 for local development
+PORT = int(os.environ.get("PORT", 5000))
+bind = f"0.0.0.0:{PORT}"
 backlog = 2048
 
 # Worker processes
