@@ -17,8 +17,9 @@ backlog = 2048
 workers = 1  # Single worker for free tier stability
 worker_class = "eventlet"
 worker_connections = 1000
-timeout = 120  # Increased timeout for slow initialization (database connections, etc.)
+timeout = 180  # Increased timeout to 3 minutes for slow initialization
 keepalive = 2
+graceful_timeout = 30  # Time to wait for workers to finish before killing
 
 # Logging
 accesslog = "-"

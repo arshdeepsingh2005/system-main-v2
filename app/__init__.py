@@ -10,10 +10,31 @@ from app.config import Config
 from app.database import init_db
 from app.services import user_service
 
-# Use eventlet async mode when running with Gunicorn eventlet workers
-# This is detected automatically, but we can be explicit
+# Auto-detect async mode:
+# - Use 'eventlet' for production (Gunicorn with eventlet workers)
+# - Use 'threading' for local development
+# - Allow override via SOCKETIO_ASYNC_MODE env var
 import os
-async_mode = os.environ.get('SOCKETIO_ASYNC_MODE', 'eventlet')
+
+# Check if we're running in production (Gunicorn or Render)
+# Render sets PORT env var, Gunicorn sets GUNICORN_CMD_ARGS
+is_production = (
+    os.environ.get('GUNICORN_CMD_ARGS') is not None or 
+    os.environ.get('SERVER_SOFTWARE', '').startswith('gunicorn') or
+    os.environ.get('PORT') is not None  # Render sets this
+)
+
+# Default async mode based on environment
+if os.environ.get('SOCKETIO_ASYNC_MODE'):
+    # Explicit override
+    async_mode = os.environ.get('SOCKETIO_ASYNC_MODE')
+elif is_production:
+    # Production: use eventlet (required for Gunicorn eventlet workers)
+    async_mode = 'eventlet'
+else:
+    # Local development: use threading (works without eventlet)
+    async_mode = 'threading'
+
 socketio = SocketIO(cors_allowed_origins="*", async_mode=async_mode)
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -42,27 +63,23 @@ def create_app(config_class=Config):
     app.register_blueprint(sse_bp)
 
     # Initialize persistence + service layer
-    # Do this in a non-blocking way to avoid worker timeout
-    import threading
+    # Do this synchronously but quickly - database init is fast, user service uses background thread
     import logging
     
-    def init_background():
-        """Initialize database and services in background to avoid blocking worker startup."""
-        try:
-            with app.app_context():
-                logging.info("Initializing database...")
-                init_db()
-                logging.info("Database initialized")
-                logging.info("Starting user service...")
-                user_service.start()
-                logging.info("User service started")
-        except Exception as e:
-            logging.error(f"Error during database/service initialization: {e}", exc_info=True)
-            # Don't crash the app - let it start and handle errors at request time
-    
-    # Start initialization in background thread
-    init_thread = threading.Thread(target=init_background, daemon=True, name="App-Init")
-    init_thread.start()
+    try:
+        with app.app_context():
+            logging.info("Initializing database...")
+            init_db()
+            logging.info("Database initialized successfully")
+            
+            # Start user service (non-blocking, uses background thread internally)
+            logging.info("Starting user service...")
+            user_service.start()
+            logging.info("User service started successfully")
+    except Exception as e:
+        logging.error(f"Error during database/service initialization: {e}", exc_info=True)
+        # Don't crash the app - let it start and handle errors at request time
+        # This allows the health endpoint to work even if DB is temporarily unavailable
     
     # Start background cleanup thread for SSE connections
     _start_sse_cleanup_thread()

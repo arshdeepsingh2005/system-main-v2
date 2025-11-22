@@ -24,7 +24,8 @@ class UserService:
         self._lock = threading.RLock()
         self._ttl = int(os.getenv("USER_CACHE_TTL", "180"))
         self._max_size = int(os.getenv("USER_CACHE_MAX_ENTRIES", "2000"))
-        self._refresh_interval = int(os.getenv("USER_CACHE_REFRESH_INTERVAL", "60"))
+        # Increase refresh interval to reduce DB load (5 minutes instead of 1 minute)
+        self._refresh_interval = int(os.getenv("USER_CACHE_REFRESH_INTERVAL", "300"))
         self._hydration_backoff = int(os.getenv("USER_CACHE_MISS_BACKOFF", "5"))
         self._background_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
@@ -34,17 +35,30 @@ class UserService:
         """
         Warm the cache and start the periodic refresh thread.
         """
+        # Prevent multiple threads from starting (important in multi-worker environments)
         if self._background_thread and self._background_thread.is_alive():
             return
+        
+        # Use a lock to ensure only one thread starts
+        if not hasattr(self, '_start_lock'):
+            self._start_lock = threading.Lock()
+        
+        with self._start_lock:
+            if self._background_thread and self._background_thread.is_alive():
+                return
+            
+            # Do initial refresh (non-blocking, quick)
+            try:
+                self.refresh_all_users()
+            except Exception as e:
+                print(f"UserService: Initial refresh failed (will retry): {e}")
 
-        self.refresh_all_users()
-
-        self._stop_event.clear()
-        self._background_thread = threading.Thread(
-            target=self._refresh_loop, name="user-cache-refresh", daemon=True
-        )
-        self._background_thread.start()
-        print("UserService: background cache refresh thread started")
+            self._stop_event.clear()
+            self._background_thread = threading.Thread(
+                target=self._refresh_loop, name="user-cache-refresh", daemon=True
+            )
+            self._background_thread.start()
+            print(f"UserService: background cache refresh thread started (interval={self._refresh_interval}s)")
 
     def stop(self) -> None:
         """
@@ -87,6 +101,7 @@ class UserService:
         Refresh the cached user list from the database in bulk.
         """
         try:
+            # Use a timeout to prevent hanging
             with SessionLocal() as session:
                 rows = session.execute(
                     select(
@@ -113,12 +128,17 @@ class UserService:
                 self._cache.update(new_cache)
                 self._last_full_refresh = now
 
-            print(
-                f"UserService: refreshed {len(new_cache)} usernames from database "
-                f"(ttl={self._ttl}s)"
-            )
+            # Only log if we actually refreshed something (reduce log spam)
+            if len(new_cache) > 0:
+                print(
+                    f"UserService: refreshed {len(new_cache)} usernames from database "
+                    f"(ttl={self._ttl}s, next refresh in {self._refresh_interval}s)"
+                )
         except Exception as exc:
-            print(f"UserService: bulk refresh failed -> {exc}")
+            # Don't spam logs on every failure - only log if it's been a while
+            if time.time() - getattr(self, '_last_error_log', 0) > 300:  # Log max once per 5 minutes
+                print(f"UserService: bulk refresh failed -> {exc}")
+                self._last_error_log = time.time()
 
     def refresh_username(self, username: str) -> Optional[dict]:
         """
