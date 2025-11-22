@@ -43,9 +43,20 @@ def ingest():
         if 'metadata' not in code_data or not isinstance(code_data['metadata'], dict):
             code_data['metadata'] = {}
         
-        # Broadcast to all connected WebSocket clients
+        # Broadcast to all connected WebSocket clients (non-blocking)
+        import threading
         from app import socketio
-        websocket_manager.broadcast_code(code_data, socketio)
+        
+        def broadcast_async():
+            try:
+                websocket_manager.broadcast_code(code_data, socketio)
+            except Exception as e:
+                import logging
+                logging.error(f"Error broadcasting code: {e}", exc_info=True)
+        
+        # Start broadcast in background thread to avoid blocking
+        broadcast_thread = threading.Thread(target=broadcast_async, daemon=True)
+        broadcast_thread.start()
         
         return jsonify({
             'status': 'success',
