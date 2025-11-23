@@ -14,7 +14,7 @@ class SSEManager:
     def __init__(self, max_connections: int = 500):
         # username -> list of connection IDs
         self.connections: Dict[str, List[str]] = defaultdict(list)
-        # username -> message queue
+        # connection_id -> message queue (each connection has its own queue)
         self.message_queues: Dict[str, queue.Queue] = {}
         # connection_id -> health tracking
         self.connection_health: Dict[str, dict] = {}
@@ -23,37 +23,25 @@ class SSEManager:
         self.max_connections = max_connections
     
     def add_connection(self, username: str, connection_id: str) -> None:
-        """Add a new SSE connection for a user."""
+        """
+        Add a new SSE connection for a user.
+        Allows multiple connections per username - all will receive broadcasted codes.
+        Username must exist in database (validated before calling this method).
+        Each connection gets its own message queue for independent message delivery.
+        """
         with self.lock:
             # Check connection limit
             current_count = sum(len(conns) for conns in self.connections.values())
             if current_count >= self.max_connections:
                 raise RuntimeError(f"Maximum SSE connections ({self.max_connections}) reached")
-            # Auto-disconnect previous connections for same user (allow only 1 active connection)
-            if username in self.connections and self.connections[username]:
-                old_connections = self.connections[username].copy()
-                for old_conn_id in old_connections:
-                    if old_conn_id in self.connection_health:
-                        del self.connection_health[old_conn_id]
-                    # Try to send disconnect message
-                    if username in self.message_queues:
-                        try:
-                            disconnect_msg = {
-                                'type': 'force_disconnect',
-                                'message': 'New connection detected - this session will be closed',
-                                'timestamp': int(time.time())
-                            }
-                            self.message_queues[username].put_nowait(disconnect_msg)
-                        except queue.Full:
-                            pass
-                self.connections[username].clear()
             
-            # Initialize message queue if doesn't exist
-            if username not in self.message_queues:
-                self.message_queues[username] = queue.Queue(maxsize=self.max_queue_size)
+            # Create dedicated message queue for this connection
+            if connection_id not in self.message_queues:
+                self.message_queues[connection_id] = queue.Queue(maxsize=self.max_queue_size)
             
-            # Add new connection
-            self.connections[username].append(connection_id)
+            # Add new connection (allow multiple connections per username)
+            if connection_id not in self.connections[username]:
+                self.connections[username].append(connection_id)
             
             # Initialize health tracking
             self.connection_health[connection_id] = {
@@ -70,11 +58,13 @@ class SSEManager:
                 if connection_id in self.connections[username]:
                     self.connections[username].remove(connection_id)
                 
-                # Clean up if no more connections
+                # Clean up if no more connections for this username
                 if not self.connections[username]:
                     del self.connections[username]
-                    if username in self.message_queues:
-                        del self.message_queues[username]
+            
+            # Clean up connection-specific message queue
+            if connection_id in self.message_queues:
+                del self.message_queues[connection_id]
             
             # Clean up health tracking
             if connection_id in self.connection_health:
@@ -82,37 +72,52 @@ class SSEManager:
     
     def broadcast_code(self, code_data: dict) -> None:
         """
-        Broadcast code to all SSE connections for the user.
+        Broadcast code to ALL connected SSE clients (regardless of username).
+        Admin sends code and all connected users receive it.
+        Username in code_data is only for tracking/logging, not for filtering.
         
         Args:
-            code_data: Dictionary containing code information with username
+            code_data: Dictionary containing code information
         """
-        username = code_data.get('username')
-        if not username:
-            return
+        # Add value field as requested (value: 3)
+        message = code_data.copy()
+        if 'value' not in message:
+            message['value'] = 3
         
         with self.lock:
-            if username in self.message_queues:
-                # Add value field as requested (value: 3)
-                message = code_data.copy()
-                if 'value' not in message:
-                    message['value'] = 3
-                
-                # Try to add message to queue
-                try:
-                    self.message_queues[username].put_nowait(message)
-                except queue.Full:
-                    # Queue full, log and skip this message
-                    import logging
-                    logging.warning(
-                        f"SSE message queue full for user '{username}', "
-                        f"dropping message: {code_data.get('code', 'N/A')}"
-                    )
+            # Get ALL connection IDs (all usernames)
+            all_connection_ids = []
+            for username, conn_ids in self.connections.items():
+                all_connection_ids.extend(conn_ids)
+            
+            if not all_connection_ids:
+                # No connections, skip
+                return
+            
+            # Broadcast to ALL connections (all users receive the code)
+            failed_queues = 0
+            for connection_id in all_connection_ids:
+                if connection_id in self.message_queues:
+                    try:
+                        self.message_queues[connection_id].put_nowait(message)
+                    except queue.Full:
+                        failed_queues += 1
+                        import logging
+                        logging.warning(
+                            f"SSE message queue full for connection '{connection_id}', "
+                            f"dropping message: {code_data.get('code', 'N/A')}"
+                        )
+            
+            if failed_queues > 0:
+                import logging
+                logging.warning(
+                    f"Failed to deliver code to {failed_queues}/{len(all_connection_ids)} connections"
+                )
     
-    def get_message_queue(self, username: str) -> Optional[queue.Queue]:
-        """Get message queue for a user."""
+    def get_message_queue(self, connection_id: str) -> Optional[queue.Queue]:
+        """Get message queue for a specific connection."""
         with self.lock:
-            return self.message_queues.get(username)
+            return self.message_queues.get(connection_id)
     
     def update_pong(self, connection_id: str) -> None:
         """Update last pong time for a connection."""
@@ -156,11 +161,14 @@ class SSEManager:
             total_queued = sum(
                 q.qsize() for q in self.message_queues.values()
             )
+            # Count connections per user
+            connections_per_user = {user: len(conns) for user, conns in self.connections.items()}
             return {
                 'active_connections': self.get_connection_count(),
                 'users_with_connections': len(self.connections),
                 'total_queued_messages': total_queued,
-                'total_health_tracked': len(self.connection_health)
+                'total_health_tracked': len(self.connection_health),
+                'connections_per_user': connections_per_user
             }
 
 

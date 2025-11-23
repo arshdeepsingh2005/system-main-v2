@@ -336,8 +336,11 @@ def stream_events():
     if not user_record or not user_record.get('user_id'):
         return jsonify({'error': 'Unknown username'}), 403
     
-    # Generate connection ID
-    connection_id = f"{user}_{int(time.time())}"
+    # Generate unique connection ID (username + timestamp + random suffix)
+    import random
+    import string
+    random_suffix = ''.join(random.choices(string.ascii_letters + string.digits, k=6))
+    connection_id = f"{user}_{int(time.time())}_{random_suffix}"
     
     # Add connection to manager
     sse_manager.add_connection(user, connection_id)
@@ -354,8 +357,8 @@ def stream_events():
             }
             yield f"data: {json.dumps(initial_message)}\n\n"
             
-            # Get message queue
-            message_queue = sse_manager.get_message_queue(user)
+            # Get message queue for this specific connection
+            message_queue = sse_manager.get_message_queue(connection_id)
             if not message_queue:
                 yield f"data: {json.dumps({'type': 'error', 'message': 'Failed to initialize message queue'})}\n\n"
                 return
