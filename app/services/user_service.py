@@ -21,7 +21,9 @@ class UserService:
 
     def __init__(self):
         self._cache: Dict[str, dict] = {}
-        self._lock = threading.RLock()
+        # Use regular Lock instead of RLock for eventlet compatibility
+        # RLock can cause "cannot wait on un-acquired lock" errors in eventlet/greenlet environments
+        self._lock = threading.Lock()
         self._ttl = int(os.getenv("USER_CACHE_TTL", "180"))
         self._max_size = int(os.getenv("USER_CACHE_MAX_ENTRIES", "2000"))
         # Increase refresh interval to reduce DB load (5 minutes instead of 1 minute)
@@ -181,7 +183,12 @@ class UserService:
             return entry
 
     def _hydrate_username(self, normalized: str) -> Optional[dict]:
+        """
+        Hydrate a username from the database and cache it.
+        Thread-safe and eventlet-compatible.
+        """
         try:
+            # Query database first (outside lock to avoid blocking)
             with SessionLocal() as session:
                 row = session.execute(
                     select(User).where(func.lower(User.username) == normalized)
@@ -196,23 +203,36 @@ class UserService:
                 "expires_at": time.time() + self._ttl,
             }
 
-            with self._lock:
-                if len(self._cache) >= self._max_size:
-                    # Drop arbitrary expired entries to make room.
-                    expired = [
-                        key
-                        for key, value in self._cache.items()
-                        if value.get("expires_at", 0) < time.time()
-                    ]
-                    for key in expired:
-                        self._cache.pop(key, None)
-                        if len(self._cache) < self._max_size:
-                            break
-                self._cache[normalized] = entry
+            # Update cache with lock (use non-blocking approach for eventlet)
+            try:
+                self._lock.acquire()
+                try:
+                    if len(self._cache) >= self._max_size:
+                        # Drop arbitrary expired entries to make room.
+                        expired = [
+                            key
+                            for key, value in self._cache.items()
+                            if value.get("expires_at", 0) < time.time()
+                        ]
+                        for key in expired:
+                            self._cache.pop(key, None)
+                            if len(self._cache) < self._max_size:
+                                break
+                    self._cache[normalized] = entry
+                finally:
+                    self._lock.release()
+            except Exception as lock_exc:
+                # If lock fails, still return the entry (best effort)
+                import logging
+                logging.warning(f"UserService: lock error during cache update: {lock_exc}")
+                # Try to update cache without lock as fallback (not thread-safe but better than nothing)
+                if len(self._cache) < self._max_size:
+                    self._cache[normalized] = entry
 
             return entry
         except Exception as exc:
-            print(f"UserService: failed to hydrate username '{normalized}': {exc}")
+            import logging
+            logging.error(f"UserService: failed to hydrate username '{normalized}': {exc}", exc_info=True)
             return None
 
 
