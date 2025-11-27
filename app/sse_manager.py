@@ -80,10 +80,7 @@ class SSEManager:
         Args:
             code_data: Dictionary containing code information
         """
-        # Add value field as requested (value: 3)
         message = code_data.copy()
-        if 'value' not in message:
-            message['value'] = 3
         
         with self.lock:
             # Get ALL connection IDs (all usernames)

@@ -40,9 +40,15 @@ def validate_code_data(data):
         'type': data.get('type', 'default')
     }
     
-    # Add any additional metadata
+    # Add any additional metadata (store as-is, don't inspect nested keys)
     if 'metadata' in data:
         code_data['metadata'] = data['metadata']
+    
+    # Preserve optional top-level fields (main keys only)
+    optional_fields = ('value',)
+    for field in optional_fields:
+        if field in data:
+            code_data[field] = data[field]
     
     return code_data
 
