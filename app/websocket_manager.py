@@ -114,11 +114,6 @@ class WebSocketManager:
         
         # Check for duplicates (within deduplication window)
         if self.is_code_duplicate(code_value):
-            import logging
-            logging.info(
-                f"Duplicate code detected and skipped: '{code_value}' "
-                f"(within {self._deduplication_window}s window)"
-            )
             return False
         
         # Add timestamp if not present

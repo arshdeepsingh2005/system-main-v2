@@ -33,12 +33,20 @@ def validate_code_data(data):
     if not code or len(code) > Config.MAX_CODE_LENGTH:
         return None
     
+    # Normalize codetype (single supported key)
+    raw_code_type = data.get('codetype')
+    code_type = str(raw_code_type).strip() if raw_code_type else 'default'
+    
     # Build normalized code data
     code_data = {
         'code': code,
         'source': data.get('source', 'unknown'),
-        'type': data.get('type', 'default')
+        'type': code_type or 'default'
     }
+    
+    # Echo codetype field if provided
+    if 'codetype' in data:
+        code_data['codetype'] = code_type or 'default'
     
     # Add any additional metadata (store as-is, don't inspect nested keys)
     if 'metadata' in data:
