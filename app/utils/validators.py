@@ -41,12 +41,9 @@ def validate_code_data(data):
     code_data = {
         'code': code,
         'source': data.get('source', 'unknown'),
-        'type': code_type or 'default'
+        'type': code_type or 'default',
+        'codetype': code_type or 'default'  # Always include codetype in broadcast
     }
-    
-    # Echo codetype field if provided
-    if 'codetype' in data:
-        code_data['codetype'] = code_type or 'default'
     
     # Add any additional metadata (store as-is, don't inspect nested keys)
     if 'metadata' in data:
