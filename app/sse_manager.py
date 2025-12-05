@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 class SSEManager:
     """Manages SSE connections and code broadcasting."""
     
-    def __init__(self, max_connections: int = 500):
+    def __init__(self, max_connections: Optional[int] = None):
         # username -> list of connection IDs
         self.connections: Dict[str, List[str]] = defaultdict(list)
         # connection_id -> message queue (each connection has its own queue)
@@ -30,10 +30,11 @@ class SSEManager:
         Each connection gets its own message queue for independent message delivery.
         """
         with self.lock:
-            # Check connection limit
-            current_count = sum(len(conns) for conns in self.connections.values())
-            if current_count >= self.max_connections:
-                raise RuntimeError(f"Maximum SSE connections ({self.max_connections}) reached")
+            # Check connection limit (if set)
+            if self.max_connections is not None:
+                current_count = sum(len(conns) for conns in self.connections.values())
+                if current_count >= self.max_connections:
+                    raise RuntimeError(f"Maximum SSE connections ({self.max_connections}) reached")
             
             # Create dedicated message queue for this connection
             if connection_id not in self.message_queues:
@@ -184,6 +185,6 @@ class SSEManager:
             }
 
 
-# Global instance
-sse_manager = SSEManager()
+# Global instance - unlimited connections
+sse_manager = SSEManager(max_connections=None)
 
