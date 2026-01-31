@@ -24,10 +24,13 @@ def _resolve_user_from_request():
         return None
     
     auth_service = get_user_auth_service()
-    if auth_service and auth_service.is_available():
-        user_record = auth_service.verify_username(normalized)
-        if user_record:
-            return user_record
+    if auth_service and auth_service.redis_client:
+        try:
+            user_record = auth_service.verify_username(normalized)
+            if user_record:
+                return user_record
+        except Exception:
+            pass
     
     return user_service.verify_username(normalized)
 

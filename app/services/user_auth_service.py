@@ -166,9 +166,7 @@ class UserAuthService:
     
     def is_available(self) -> bool:
         if not self.redis_client:
-            self._connect()
-            if not self.redis_client:
-                return False
+            return False
         try:
             self.redis_client.ping()
             return True
