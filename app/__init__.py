@@ -8,7 +8,7 @@ from flask_socketio import SocketIO
 
 from app.config import Config
 from app.database import init_db
-from app.services import user_service, init_cache_service
+from app.services import user_service, init_cache_service, init_user_auth_service, user_sync_worker
 
 # Auto-detect async mode:
 # - Use 'eventlet' for production (Gunicorn with eventlet workers)
@@ -70,14 +70,12 @@ def create_app(config_class=Config):
         with app.app_context():
             init_db()
             user_service.start()
-            # Initialize Redis cache service (non-blocking, graceful degradation if Redis unavailable)
             init_cache_service(config_class)
+            init_user_auth_service(config_class)
+            user_sync_worker.start()
     except Exception as e:
         logging.error(f"Error during database/service initialization: {e}", exc_info=True)
-        # Don't crash the app - let it start and handle errors at request time
-        # This allows the health endpoint to work even if DB is temporarily unavailable
     
-    # Start background cleanup thread for SSE connections
     _start_sse_cleanup_thread()
     
     return app
