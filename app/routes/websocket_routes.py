@@ -2,6 +2,7 @@
 WebSocket route handlers with username verification.
 """
 import hmac
+import threading
 
 from flask import Blueprint, request
 from flask_socketio import disconnect, emit, join_room, leave_room
@@ -11,6 +12,13 @@ from app.config import Config
 from app.services import get_user_auth_service, user_service
 from app.utils.validators import extract_username, validate_code_data
 from app.websocket_manager import websocket_manager
+import eventlet
+
+try:
+    HAS_EVENTLET = hasattr(eventlet, 'spawn')
+except (ImportError, AttributeError):
+    eventlet = None
+    HAS_EVENTLET = False
 
 ws_bp = Blueprint('ws', __name__)
 
@@ -23,6 +31,12 @@ def _resolve_user_from_request():
     if not normalized:
         return None
     
+    # Priority 1: Check in-memory cache FIRST (fastest, local server)
+    cached = user_service._get_from_cache(normalized)
+    if cached and cached.get('user_id'):
+        return cached
+    
+    # Priority 2: Check Redis (if available, but don't block)
     auth_service = get_user_auth_service()
     if auth_service and auth_service.redis_client:
         try:
@@ -32,18 +46,42 @@ def _resolve_user_from_request():
         except Exception:
             pass
     
-    return user_service.verify_username(normalized)
+    # Priority 3: Return None immediately (don't block on DB)
+    # Background sync will populate cache for next time
+    return None
 
 
 def _authorize_connection(namespace):
     user_record = _resolve_user_from_request()
     if not user_record or not user_record.get('user_id'):
+        # Start background verification for cache miss
+        username = request.args.get('username') or request.headers.get('X-Username')
+        if username:
+            normalized = extract_username({'username': username})
+            if normalized:
+                _verify_user_background(normalized)
+        
         emit('error', {'message': 'Unauthorized or unknown username'})
         disconnect(request.sid)
         return None
 
     websocket_manager.add_client(request.sid, namespace, user_record)
     return user_record
+
+
+def _verify_user_background(normalized: str):
+    """Verify user in background to populate cache for next connection."""
+    def verify():
+        try:
+            user_service._hydrate_username(normalized)
+        except Exception:
+            pass
+    
+    if HAS_EVENTLET and eventlet:
+        eventlet.spawn(verify)
+    else:
+        thread = threading.Thread(target=verify, daemon=True)
+        thread.start()
 
 
 def _client_context():
