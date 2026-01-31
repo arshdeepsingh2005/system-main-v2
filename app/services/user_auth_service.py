@@ -140,6 +140,41 @@ class UserAuthService:
         except RedisError:
             return False
     
+    def remove_stale_users(self, valid_usernames: set) -> int:
+        if not self.redis_client:
+            return 0
+        
+        try:
+            pattern = f"{self.USER_KEY_PREFIX}*"
+            deleted_count = 0
+            pipeline_batch_size = 100
+            keys_to_delete = []
+            
+            cursor = 0
+            while True:
+                cursor, keys = self.redis_client.scan(cursor, match=pattern, count=100)
+                
+                for key in keys:
+                    username_from_key = key.replace(self.USER_KEY_PREFIX, "").lower()
+                    if username_from_key not in valid_usernames:
+                        keys_to_delete.append(key)
+                
+                if cursor == 0:
+                    break
+            
+            if keys_to_delete:
+                pipe = self.redis_client.pipeline()
+                for i in range(0, len(keys_to_delete), pipeline_batch_size):
+                    batch = keys_to_delete[i:i + pipeline_batch_size]
+                    for key in batch:
+                        pipe.delete(key)
+                    pipe.execute()
+                    deleted_count += len(batch)
+            
+            return deleted_count
+        except RedisError:
+            return 0
+    
     def sync_users(self, users: list) -> int:
         if not self.redis_client:
             return 0

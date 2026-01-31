@@ -50,7 +50,12 @@ class UserSyncWorker:
                 'username': row.username.strip()
             } for row in rows if row.username]
             
-            return auth_service.sync_users(users)
+            db_usernames = {user['username'].lower() for user in users}
+            
+            deleted_count = auth_service.remove_stale_users(db_usernames)
+            synced_count = auth_service.sync_users(users)
+            
+            return synced_count
         except Exception:
             return 0
     

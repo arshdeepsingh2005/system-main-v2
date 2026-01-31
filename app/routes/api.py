@@ -121,12 +121,12 @@ def convert_to_usd():
                 user.usd_claim_amount = 0.0
             user.usd_claim_amount += converted_usd
             
-            session.commit()
-            
-            return jsonify({
-                'success': True,
-                'usd_claim_amount': user.usd_claim_amount,
-            }), 200
+            final_amount = user.usd_claim_amount
+        
+        return jsonify({
+            'success': True,
+            'usd_claim_amount': final_amount,
+        }), 200
             
     except Exception as e:
         return jsonify({
