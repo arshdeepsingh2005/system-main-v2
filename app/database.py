@@ -54,7 +54,7 @@ if DATABASE_URL.startswith("sqlite"):
 connect_args_with_timeout = connect_args.copy()
 if DATABASE_URL.startswith("postgresql"):
     # PostgreSQL connection timeout (in seconds)
-    connect_args_with_timeout.setdefault("connect_timeout", 10)
+    connect_args_with_timeout.setdefault("connect_timeout", 30)
 
 # Detect if running in eventlet environment (production with Gunicorn eventlet workers)
 # Eventlet's green threads don't work well with SQLAlchemy's QueuePool locks
@@ -84,7 +84,7 @@ else:
         poolclass=QueuePool,
         pool_pre_ping=True,
         pool_recycle=3600,  # Recycle connections after 1 hour
-        pool_timeout=10,    # Timeout when getting connection from pool
+        pool_timeout=30,    # Timeout when getting connection from pool
         future=True,
         echo=False,
         connect_args=connect_args_with_timeout,

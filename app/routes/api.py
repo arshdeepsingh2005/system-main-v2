@@ -1,8 +1,11 @@
+import logging
 from flask import Blueprint, jsonify, request
 from sqlalchemy import select, func
 from app.database import db_session
 from app.models import User, ExchangeRate
 from app.services import get_cache_service
+
+logger = logging.getLogger(__name__)
 
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
@@ -120,12 +123,15 @@ def convert_to_usd():
             
             session.commit()
             
+            logger.debug(f"convert-to-usd: Success - username={username}, currency={currency}, amount={amount}, converted={converted_usd}, total_usd={user.usd_claim_amount}")
+            
             return jsonify({
                 'success': True,
                 'usd_claim_amount': user.usd_claim_amount,
             }), 200
             
     except Exception as e:
+        logger.debug(f"convert-to-usd: Error - {str(e)}")
         return jsonify({
             'error': 'Internal server error',
             'message': str(e)
