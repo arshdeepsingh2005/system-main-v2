@@ -89,6 +89,44 @@ class CacheService:
         except RedisError:
             return False
     
+    def preload_all_rates(self, exchange_rates: list) -> int:
+        """Preload all exchange rates into Redis cache."""
+        if not self.redis_client:
+            import logging
+            logging.warning("CacheService.preload_all_rates: Redis client not available")
+            return 0
+        
+        try:
+            count = 0
+            pipe = self.redis_client.pipeline()
+            
+            for rate_data in exchange_rates:
+                currency = rate_data.get('currency', '').strip().upper() if rate_data.get('currency') else None
+                rate = rate_data.get('rate')
+                
+                if currency and rate and rate > 0:
+                    cache_key = self._get_cache_key(currency)
+                    pipe.setex(cache_key, self.CACHE_TTL_SECONDS, str(rate))
+                    count += 1
+            
+            if count > 0:
+                results = pipe.execute()
+                import logging
+                logging.info(f"CacheService.preload_all_rates: Executed pipeline with {count} rates, {len(results)} results")
+                return count
+            else:
+                import logging
+                logging.warning("CacheService.preload_all_rates: No valid rates to preload")
+                return 0
+        except RedisError as e:
+            import logging
+            logging.error(f"CacheService.preload_all_rates: Redis error: {e}", exc_info=True)
+            return 0
+        except Exception as e:
+            import logging
+            logging.error(f"CacheService.preload_all_rates: Unexpected error: {e}", exc_info=True)
+            return 0
+    
     def is_available(self) -> bool:
         if not self.redis_client:
             return False

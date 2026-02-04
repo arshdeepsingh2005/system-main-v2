@@ -72,6 +72,9 @@ class Config:
     # Redis connection pool settings
     REDIS_SOCKET_CONNECT_TIMEOUT = int(os.environ.get('REDIS_SOCKET_CONNECT_TIMEOUT', '5'))
     REDIS_SOCKET_TIMEOUT = int(os.environ.get('REDIS_SOCKET_TIMEOUT', '5'))
+    
+    # Pinned users - always kept in cache for fast WebSocket connections
+    PINNED_USERS = ["bharat", "marc_henry"]
 
 
 

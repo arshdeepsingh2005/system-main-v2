@@ -90,30 +90,19 @@ def convert_to_usd():
                 return jsonify({'error': f'User with username "{username}" not found'}), 404
             
             cache_service = get_cache_service()
-            rate_from_usd = None
+            if not cache_service or not cache_service.is_available():
+                return jsonify({'error': 'Cache service unavailable'}), 500
             
-            if cache_service and cache_service.is_available():
-                rate_from_usd = cache_service.get_exchange_rate(currency)
-            
+            rate_from_usd = cache_service.get_exchange_rate(currency)
             if rate_from_usd is None:
-                exchange_rate = session.execute(
-                    select(ExchangeRate).where(func.upper(func.trim(ExchangeRate.target_currency)) == currency)
-                ).scalar_one_or_none()
-                
-                if not exchange_rate:
-                    return jsonify({
-                        'error': f'Exchange rate for currency "{currency}" not found'
-                    }), 404
-                
-                if exchange_rate.rate_from_usd <= 0:
-                    return jsonify({
-                        'error': f'Invalid exchange rate for currency "{currency}"'
-                    }), 400
-                
-                rate_from_usd = exchange_rate.rate_from_usd
-                
-                if cache_service and cache_service.is_available():
-                    cache_service.set_exchange_rate(currency, rate_from_usd)
+                return jsonify({
+                    'error': f'Exchange rate for currency "{currency}" not found'
+                }), 404
+            
+            if rate_from_usd <= 0:
+                return jsonify({
+                    'error': f'Invalid exchange rate for currency "{currency}"'
+                }), 400
             
             converted_usd = amount / rate_from_usd
             

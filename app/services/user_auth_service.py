@@ -199,6 +199,44 @@ class UserAuthService:
         except RedisError:
             return 0
     
+    def lookup_user_sync(self, username: str, timeout: float = 0.2) -> Optional[dict]:
+        """
+        Synchronous DB lookup with timeout.
+        If user is found, cache it in Redis and return.
+        """
+        try:
+            from sqlalchemy import select, func
+            from app.database import SessionLocal
+            from app.models import User
+            import threading
+            
+            result = [None]
+            
+            def query_db():
+                try:
+                    with SessionLocal() as session:
+                        row = session.execute(
+                            select(User).where(func.lower(User.username) == username.lower())
+                        ).scalar_one_or_none()
+                        
+                        if row:
+                            result[0] = {
+                                'user_id': row.id,
+                                'username': row.username
+                            }
+                            # Cache in Redis for next time
+                            self.set_user(row.username, row.id)
+                except Exception:
+                    pass
+            
+            thread = threading.Thread(target=query_db, daemon=True)
+            thread.start()
+            thread.join(timeout=timeout)
+            
+            return result[0]
+        except Exception:
+            return None
+    
     def is_available(self) -> bool:
         if not self.redis_client:
             return False
