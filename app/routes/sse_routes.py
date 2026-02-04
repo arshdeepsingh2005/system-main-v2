@@ -27,6 +27,9 @@ def _resolve_user_for_sse(user: str) -> Optional[dict]:
     normalized = extract_username({"username": user})
     if not normalized:
         return None
+    
+    # Normalize to lowercase for consistent lookups
+    normalized = normalized.lower()
 
     # Priority 1: local cache (pinned users only)
     cached = user_service._get_from_cache(normalized)
@@ -47,8 +50,9 @@ def _resolve_user_for_sse(user: str) -> Optional[dict]:
             pass
 
     # Priority 3: quick DB lookup (backfills Redis)
+    # Increased timeout to 1s for Render DB latency
     try:
-        user_record = auth_service.lookup_user_sync(normalized, timeout=0.2)
+        user_record = auth_service.lookup_user_sync(normalized, timeout=1.0)
         if user_record and user_record.get("user_id"):
             return user_record
     except Exception:

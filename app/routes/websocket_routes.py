@@ -30,6 +30,9 @@ def _resolve_user_from_request():
     if not normalized:
         return None
     
+    # Normalize to lowercase for consistent lookups
+    normalized = normalized.lower()
+    
     # Priority 1: Check local cache (pinned users only)
     cached = user_service._get_from_cache(normalized)
     if cached and cached.get('user_id'):
@@ -46,9 +49,10 @@ def _resolve_user_from_request():
             pass
     
     # Priority 3: Quick synchronous DB lookup (with timeout)
+    # Increased timeout to 1s for Render DB latency
     if auth_service:
         try:
-            user_record = auth_service.lookup_user_sync(normalized, timeout=0.2)
+            user_record = auth_service.lookup_user_sync(normalized, timeout=1.0)
             if user_record:
                 return user_record
         except Exception:
