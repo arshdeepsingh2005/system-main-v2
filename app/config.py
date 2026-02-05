@@ -50,7 +50,8 @@ class Config:
         "https://stake1022.com",
         "https://stake1039.com",
         "https://stake.us",
-        "https://stake.br"
+        "https://stake.br",
+        "https://put-1.onrender.com"
     ]
     
     # Add Render host if available
