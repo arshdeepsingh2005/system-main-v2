@@ -5,6 +5,7 @@ import hmac
 import hashlib
 import json
 import queue
+import threading
 import time
 from typing import Optional
 from urllib.parse import urlparse
@@ -16,6 +17,64 @@ from app.sse_manager import sse_manager
 from app.utils.validators import extract_username
 
 sse_bp = Blueprint('sse', __name__)
+
+
+class InvalidUsernameRateLimiter:
+    """Rate limiter for invalid username attempts on /embed-stream."""
+    
+    def __init__(self, rate_limit_seconds: float = 10.0):
+        self._failed_attempts: dict[str, float] = {}  # username -> timestamp
+        self._lock = threading.Lock()
+        self._rate_limit_seconds = rate_limit_seconds
+        self._max_entries = 10000  # Prevent memory growth
+    
+    def check_rate_limit(self, username: str) -> tuple[bool, float]:
+        """
+        Check if username is rate limited.
+        
+        Returns:
+            (is_rate_limited: bool, retry_after: float)
+            If rate limited, retry_after is seconds until retry is allowed
+        """
+        normalized = username.lower().strip() if username else ""
+        if not normalized:
+            return False, 0.0
+        
+        now = time.time()
+        
+        with self._lock:
+            # Clean up expired entries periodically
+            if len(self._failed_attempts) > self._max_entries:
+                cutoff = now - self._rate_limit_seconds
+                expired = [
+                    k for k, v in self._failed_attempts.items()
+                    if v < cutoff
+                ]
+                for k in expired:
+                    del self._failed_attempts[k]
+            
+            # Check if username is rate limited
+            last_failed = self._failed_attempts.get(normalized, 0)
+            if last_failed > 0:
+                time_since_failed = now - last_failed
+                if time_since_failed < self._rate_limit_seconds:
+                    retry_after = self._rate_limit_seconds - time_since_failed
+                    return True, retry_after
+            
+            return False, 0.0
+    
+    def record_failed_attempt(self, username: str) -> None:
+        """Record a failed username attempt."""
+        normalized = username.lower().strip() if username else ""
+        if not normalized:
+            return
+        
+        with self._lock:
+            self._failed_attempts[normalized] = time.time()
+
+
+# Global rate limiter instance for invalid username attempts
+invalid_username_rate_limiter = InvalidUsernameRateLimiter(rate_limit_seconds=10.0)
 
 def _resolve_user_for_sse(user: str) -> Optional[dict]:
     """
@@ -119,9 +178,22 @@ def embed_stream():
     if not nonce or len(nonce) < 8:
         return jsonify({'error': 'Valid nonce required (minimum 8 characters)'}), 400
     
+    # Check rate limit for invalid username attempts
+    is_rate_limited, retry_after = invalid_username_rate_limiter.check_rate_limit(user)
+    if is_rate_limited:
+        response = jsonify({
+            'error': 'Rate limit exceeded',
+            'detail': 'Too many attempts with invalid username. Please try again later.'
+        })
+        response.status_code = 429
+        response.headers['Retry-After'] = f"{int(retry_after) if retry_after else 10}"
+        return response
+    
     # Validate username
     user_record = _resolve_user_for_sse(user)
     if not user_record or not user_record.get('user_id'):
+        # Record failed attempt for rate limiting
+        invalid_username_rate_limiter.record_failed_attempt(user)
         return jsonify({'error': 'Unknown username'}), 403
     
     # Generate signed token
