@@ -58,6 +58,20 @@ class Config:
     if RENDER_HOST:
         ALLOWED_ORIGINS.append(RENDER_HOST)
     
+    # Add Cloudflare domain if available (for custom domains behind Cloudflare)
+    CLOUDFLARE_DOMAIN = os.environ.get('CLOUDFLARE_DOMAIN', '')
+    if CLOUDFLARE_DOMAIN:
+        # Add both http and https versions
+        if not CLOUDFLARE_DOMAIN.startswith('http'):
+            ALLOWED_ORIGINS.extend([
+                f"https://{CLOUDFLARE_DOMAIN}",
+                f"http://{CLOUDFLARE_DOMAIN}",
+                f"https://www.{CLOUDFLARE_DOMAIN}",
+                f"http://www.{CLOUDFLARE_DOMAIN}"
+            ])
+        else:
+            ALLOWED_ORIGINS.append(CLOUDFLARE_DOMAIN)
+    
     # Development/localhost support - always allow localhost for testing
     ALLOWED_ORIGINS.extend([
         "http://localhost:3000",
