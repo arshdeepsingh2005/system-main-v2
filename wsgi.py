@@ -1,6 +1,9 @@
 """
 WSGI entry point for production.
 """
+import eventlet
+eventlet.monkey_patch()
+
 import sys
 import logging
 
